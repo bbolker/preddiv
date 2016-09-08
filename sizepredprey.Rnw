@@ -1,0 +1,261 @@
+\documentclass{article}
+\usepackage{scrtime}
+\usepackage{natbib}
+\usepackage{amsmath}
+\usepackage[english]{babel} %% texi2dvi ~ bug
+\bibliographystyle{chicago}
+\title{Size- and density-structured predator-prey models}
+\author{Ben Bolker}
+\date{\today @ \thistime}
+\usepackage{color}
+%% http://www.f.kth.se/~ante/latex.php#marginpar
+\setlength{\marginparwidth}{1.2in}
+\let\oldmarginpar\marginpar
+\renewcommand\marginpar[1]{\-\oldmarginpar[\raggedleft\footnotesize #1]%
+{\raggedright\footnotesize #1}}
+\newcommand{\bmb}  [1]{\marginpar{\color{red} \small #1}}
+\newcommand{\fixme}[1]{\marginpar{{\small \color{red} #1}}}
+\begin{document}
+
+\maketitle
+
+<<opts,echo=FALSE>>=
+library("knitr")
+library("rgl")
+opts_chunk$set(fig.height=4,
+               out.width="0.8\\textwidth")
+knit_hooks$set(webgl = hook_webgl)
+@
+
+<<prelims,message=FALSE,echo=FALSE>>=
+source("sizepredprey_funs.R")
+source("transform.R")
+require("plyr")
+require("reshape2")
+@ 
+
+An attempt to write down a size-structured, density-dependent
+one-prey, two-predator model in a form that a mathematical biologist
+would enjoy (and maybe write some simple R simulation code).
+\bmb{Write a little more about the biological motivation.}
+
+\begin{itemize}
+\item Multi-predator, single-size (growing?) prey
+\item \emph{some} basic analysis should be possible, but not much: systems may achieve stable equilibria only for a limited range of parameters (e.g. at least three-species food chains with Holling II FR are very frequently chaotic \citep{abrams_dynamics_2003}); stable equilibria make outcomes easiest to compare.  Can try to compare outcomes over fixed periods (or with single cohorts), but also typically tough (although cf. \cite{okuyama_solutions_2011})
+\item simulation models may be necessary
+\end{itemize}
+\newcommand{\N}{{\mathbf N}}
+
+Full equation including placeholders for growth and demography for size-structured prey:
+\begin{eqnarray}
+\frac{\partial N(s)}{\partial t} & = & -N(s) \sum_{i=1}^P G_i(\N,s,P_i)+ (\text{growth}) + (\text{growth variation}) \\
+N(0) & = & (\text{birth}) \\
+\frac{dP_i}{dt} & = & \underbrace{c_i G_i P_i}_{\text{pred birth}} - \underbrace{d_i P_i}_{\text{pred death}} \\
+\end{eqnarray}
+where $\N$ is the whole distribution of $N(s)$.
+
+\textbf{Growth}
+The growth term would have the form $-g(s) \frac{\partial N}{\partial s}$; 
+the growth variation (diffusion) term would be proportional to $\frac{\partial^2 N}{\partial s^2}$; 
+the birth term would be proportional to some function of $\N$ (I think it also has to have a $g'(0)$ term in it too, for technical reasons \ldots)
+
+To derive/convince yourself of the form of the growth equation, consider
+the flux into and out of a small size compartment ($\{s, s+ds\}$.
+The number of individuals entering per unit time (i.e. growing out of the previous box) is $g(s)N(s)$, 
+the number leaving is $g(s+ds) N(s+ds)$, $g(s)N(s)-g(s+ds)N(s+ds)$ which basically translates into $-d (g\cdot N)/ds$. If $g$ is constant then it's $-g dN/ds$.
+
+Below I'm going to derive the general type~II response for a case where attack rate and handling time vary by prey type (size in this particular case), for independent prey without preferences (although pred preference might not be too hard to incorporate): I'm sure this has been done before, maybe by \cite{rudolf_consequences_2008}?  It might be interesting to figure out how this generalizes to other FR shapes, although we would probably have to go back to the mechanistic derivation in each case.
+
+To derive the original HII case, we assume that a predator spends time equal to (searching time + handling time = ($1/(aN) + h$) for each prey it captures and processes, so the rate at which prey disappear is the reciprocal of the total time per prey, or $1/(1/(aN)+h) = aN/(1+ ahN)$.  If there are multiple prey types (I'll index them by size to match the example below), each  with attack rate $a(s)$ and handling time $h(s)$, then the overall attack rate is $A=\sum_{\{s\}} a(s) N(s)$; the proportion of each type taken (with no predator preferences) is $f(s) = a(s) N(s)/A$; the effective handling time is the propensity-weighted average, $H=\sum f(s) h(s)$.  The FR for the entire prey population is $1/(1/A+H)$.  The FR for an individual prey size class $s$ is therefore (I think) $f(s)/(1/A+H)=a(s) N(s)/(1+AH)$ (remember that $A$ is $\sum an$, not $\sum a$).  Below, we extend this to multiple predators, assuming they act independently, by just computing the attack rates for each predator and summing them.  We assume that there is no interference, so the attack rates can be computed separately.  (Depletion creates a form of interference, but running the model makes this happen automatically).
+
+All of this can be extended to continuous size distributions by just substituting integrals for the sums appropriately.
+
+Thinking briefly about intraguild predation (IGP): more generally we could consider that \emph{all} species have the potential of being both predators and prey.  Most generally we would have to parameterize the attack rate and handling time of an individual of species $i$ of size $s_1$ acting as a predator on an individual of species $j$ of size $s_2$ (if we wanted to go completely insane and include TMII, we'd have to suppose that $a_{ij}(s1,s2)$ was also a function of \emph{everyone else} present in the system, although one shortcut for predator responses to hyperpredators would be to compute the instantaneous attack rate on the predator from everyone else currently present \ldots)  If we were to assume that all species were equivalent (or collapse all species into one) then we would have a fish-relevant model where everyone eats/is eaten solely on the basis of size.
+
+What is the relevant literature on continuous size-structured predator-prey models?
+\cite{bhattacharya_oscillations_2010} (rediscovering generation cycles)? There's probably at least \emph{some} other math-bio literature out there on size-structured P-P, although not necessarily with multiple predators \ldots e.g. de Roos on cohort-structured fish populations (here I think it's mostly cannibalism, rather than a separate predator)
+
+Let's say for concreteness that attack rate is a generalized Ricker
+function of size, $a_i(s) = c_i(s/d_i \exp(1-s/d_i))^g_i$: 
+$c_i$ is the $y$-scale,
+$d_i$ is the $x$-scale, and $g_i$ is the shape parameter.  We'll make the
+handling time a power function of size, $h_i(s)=m_i s^{n_i}$.
+<<funs>>=
+(afun <- powRicker)
+(hfun <- powFun1)
+@
+<<pix0,echo=FALSE>>=
+par(las=1,bty="l",mgp=c(2,1,0))
+par(mfrow=c(1,2),mar=c(5,4,0.5,0.5))
+curve(afun(x,c=1,d=5,g=1),from=0,to=30,
+      xlab="size",ylab="attack rate",ylim=c(0,2),axes=FALSE)
+axis(side=1,at=seq(0,30,by=10))
+axis(side=2,at=0:2)
+box()
+curve(afun(x,c=2,d=3,g=2),add=TRUE,col=2)
+legend("topright",legend=c("c=1; d=5; g=1","c=2; d=3; g=2"),
+       lty=1,col=1:2,bty="n",cex=0.8,xpd=NA)
+##
+curve(hfun(x,m=2,n=0.5),from=0,to=30,
+      xlab="size",ylab="handling time",ylim=c(0,20),axes=FALSE)
+axis(side=1,at=seq(0,30,by=10))
+axis(side=2,at=seq(0,30,by=10))
+box()
+curve(hfun(x,m=0.25,n=2),add=TRUE,col=2)
+legend("topright",legend=c("m=2; n=0.5","m=0.25; n=2"),
+       lty=1,col=1:2,bty="n",cex=0.8,xpd=NA)
+@
+
+Right now we are also returning the predator densities (which is overkill since they are constant in this example).  We could play with this a lot but the general idea looks reasonable.
+
+Test: two pred, both Ricker ($g=1$), same peak vulnerability ($d=5$),
+one is better ($c=1$ vs 2), both have constant handling time (n=0),
+tradeoff between attack rate and handling time (higher attack
+rate goes with longer handling time ($m=1$ vs 2)
+<<setpars>>=
+parnames <- c("c","d","g","m","n")
+npar <- length(parnames)
+cvec <- c(1,2)
+dvec <- c(5,5)
+gvec <- c(1,1)
+mvec <- c(1,2)
+nvec <- c(0,0)
+predpar.mat <- cbind(cvec,dvec,gvec,mvec,nvec)
+dimnames(predpar.mat) <- list(paste0("pred",1:2),parnames)
+params <- c(smin=1,smax=10,cvec,dvec,gvec,mvec,nvec)
+pList1 <- list(sizepars=c(smin=1,smax=10,ds=1),
+               predparmat=predpar.mat,
+               npred=2,
+               growpars=c(r=0,D=0))
+x0 <- rep(1,12)  ## 2 pred, 10 prey size classes
+svec <- 1:10
+g0 <- gfun(t=NA,x=x0,params=params)
+stopifnot(all.equal(g0,gfun2(t=NA,x=x0,pList1)))
+@
+
+Run the model and extract summaries of interest:
+<<run1>>=
+x0 <- rep(1,12)  ## 2 pred, 10 prey size classes
+ode1 <- ode(y=x0,times=seq(0,10,by=0.1),func=gfun2,parms=pList1)
+preymat <- ode1[,-(1:3)]
+time <- ode1[,1]
+preyprop <- sweep(preymat,1,rowSums(preymat),"/")
+totprey <- rowSums(preymat)
+meansize <- rowSums(sweep(preyprop,2,svec,"*"))
+@
+
+<<pix1,echo=FALSE,message=FALSE>>=
+library(ggplot2)
+library(reshape2)
+theme_set(theme_bw())
+## transform prey matrix to ggplot-useful format
+tfun <- function(x) as.numeric(as.character(x))
+mfun <- function(preymat,time) {
+   rownames(preymat) <- time
+   transform(setNames(melt(preymat),
+                      c("time","size","density")),
+                  time=tfun(time),size=tfun(size))
+}
+pp <- mfun(preymat,time)
+ggplot(pp,aes(x=time,y=density,colour=size))+
+     geom_line(aes(group=size))
+@
+
+<<pix2,echo=FALSE,fig.height=5,fig.width=5>>=
+persp(time,svec,preymat,theta=115,ylab="size",zlab="prey density")
+persp(time,svec,preyprop,theta=115,ylab="size",zlab="relative prey density")
+@
+  
+Try a more interesting example?  Predator \#1 with large handling time, size-independent; predator \#2 with small handling time, focusing on intermediate prey.  Expect predator \#2 to take effect first (large/small increase), followed by predator \#1 (flattening?) [Size-independence with power-Ricker: $g=0$]
+<<>>=
+cvec <- c(1,1)
+dvec <- c(4,4)
+gvec <- c(2,0)
+mvec <- c(0.3,3)
+nvec <- c(0,2)
+predpar2 <- cbind(cvec,dvec,gvec,mvec,nvec)
+pList2 <- transform(pList1,predparmat=predpar2)
+ode2 <- ode(y=x0,times=seq(0,1,by=0.025),
+            func=gfun2,parms=pList2)
+preymat2 <- ode2[,-(1:3)]
+preyprop2 <- sweep(preymat2,1,rowSums(preymat2),"/")
+time2 <- ode2[,1]
+@
+<<pix3,echo=FALSE,fig.height=5,fig.width=5>>=
+## png("pix3.png",width=5,height=5,units="in",res=600)
+persp(time2,svec,preyprop2,theta=115,
+      xlab="time",
+      ylab="size",zlab="relative prey density")
+## dev.off()
+ggplot(mfun(preymat2,time2),aes(x=time,y=density,colour=size))+
+     geom_line(aes(group=size))
+@
+
+\section{Growth modeling}
+Now turn off predation and turn on (exponential) growth and
+variation in growth (size diffusion):
+
+<<growtest,out.width="1.2\\textwidth",fig.height=5,fig.width=5>>=
+predpar_z <- cbind(c=c(0,0),d=dvec,g=gvec,m=mvec,n=nvec)
+pList3 <- transform(pList1,predparmat=predpar_z,
+                    growpars=c(r=0.5,D=0), ##1e-6),
+                    sizepars=c(smin=1,smax=10,ds=0.1))
+svec <- seq(1,10,by=0.1)
+## predator densities (both zero) plus size vector 
+## (density=1 at smallest size)
+x1 <- c(rep(0,2),c(1,rep(0,length(svec)-1)))
+## gfun2(0,x1,pList3)
+ode_grow <- ode(y=x1,times=seq(1,10,by=0.1),
+            func=gfun2,parms=pList3)
+## calcGrowth(pList3$growpars,1:10,c(1,rep(0,9)),c(0,0)) ## looks OK
+## ode_grow_euler <- ode(y=x1,times=seq(0,1,by=0.1),
+##            func=gfun2,parms=pList3,method="euler")
+## calcPred(pList3$predparmat,1:10,c(1,rep(0,9)),c(0,0)) ## looks OK
+preymat_grow <- ode_grow[,-(1:3)]
+preyprop_grow <- sweep(preymat_grow,1,rowSums(preymat_grow),"/")
+time_grow <- ode_grow[,1]
+rownames(preyprop_grow) <- time_grow
+colnames(preyprop_grow) <- svec
+persp(time_grow,svec,preyprop_grow,theta=40,ticktype="detailed")
+@ 
+
+<<ggplot_grow,echo=FALSE,eval=FALSE>>=
+preypropgrow_df <- rename(melt(preyprop_grow),c(Var1="time",Var2="size"))
+ggplot(preypropgrow_df,
+       aes(x=size,y=value,colour=time,group=time))+
+    geom_line()
+@ 
+
+%% messing around with rgl
+%https://groups.google.com/forum/?fromgroups#!topic/knitr/7pl-ZzognRM
+<<rgl,echo=FALSE,eval=FALSE,webgl=TRUE,fig.height=6,dpi=300,dev='png',out.width='.99\\textwidth',results="hide">>=
+pp <-  structure(list(FOV = 90, ignoreExtent = FALSE, 
+                      mouseMode = structure(c("polar", "fov", "zoom"), 
+                      .Names = c("left", "right", "middle")), skipRedraw = FALSE, 
+    userMatrix = structure(c(1, 0, 0, 0, 0, 0.965925812721252, 
+    0.258819043636322, 0, 0, -0.258819043636322, 0.965925812721252, 
+    0, 0, 0, 0, 1), .Dim = c(4L, 4L)), scale = c(1, 1, 1), zoom = 1, 
+    windowRect = c(5L, 159L, 261L, 415L), family = "sans", font = 1L, 
+    cex = 1, useFreeType = TRUE), .Names = c("FOV", "ignoreExtent", 
+"mouseMode", "skipRedraw", "userMatrix", "scale", "zoom", "windowRect", 
+"family", "font", "cex", "useFreeType"))
+open3d(params=pp)
+Sys.sleep(0.5)
+preyprop_clip <- preyprop_grow
+preyprop_clip[preyprop_clip>0.4] <- NA
+persp3d(time_grow,svec,preyprop_clip,col="gray")
+## library("rgl")
+## persp3d(time_grow,svec,preyprop_grow,col="gray",zlim=c(0,0.5))
+@ 
+
+\section{20 May notes}
+
+\begin{itemize}
+  \item \textbf{scenario:} growth + nonlinear size effect looks like depletion: therefore growth + nonlinear size effect + two predators with linear density effect (i.e. no depletion effects) looks like emergent outcomes even if the two predators are essentially identical
+  \item run ODEs? try to do the stuff with Toshi?
+  \item \textbf{scenario:} depletion and density-dependent growth.
+  \item illustrate scenarios -- describe functional identity of predators
+  \end{itemize}
+  
+\bibliography{sizepredprey}
+\end{document}
